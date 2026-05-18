@@ -10,6 +10,9 @@ import Levenshtein
 from collections import Counter
 from urllib.parse import urlparse
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from scipy.sparse import hstack, csr_matrix
+
 app = Flask(__name__)
 
 CORS(
@@ -21,11 +24,22 @@ CORS(
     }
 )
 
-# LOAD MODEL
+# =========================
+# LOAD MODEL + TFIDF
+# =========================
+
 model = joblib.load("phishing_model.pkl")
 
+vectorizer = joblib.load(
+    "tfidf_vectorizer.pkl"
+)
+
+# =========================
 # TRUSTED DOMAINS
+# =========================
+
 TRUSTED_DOMAINS = [
+
     "google.com",
     "youtube.com",
     "chatgpt.com",
@@ -34,8 +48,12 @@ TRUSTED_DOMAINS = [
     "microsoft.com"
 ]
 
+# =========================
 # TRUSTED BRANDS
+# =========================
+
 trusted_brands = [
+
     'google',
     'amazon',
     'paypal',
@@ -48,7 +66,37 @@ trusted_brands = [
     'github'
 ]
 
+# =========================
+# SHORTENERS
+# =========================
+
+shorteners = [
+
+    'bit.ly',
+    'tinyurl',
+    'goo.gl',
+    't.co',
+    'is.gd'
+]
+
+# =========================
+# BAD TLDS
+# =========================
+
+bad_tlds = [
+
+    'ru',
+    'tk',
+    'ml',
+    'ga',
+    'cf',
+    'gq'
+]
+
+# =========================
 # ENTROPY FUNCTION
+# =========================
+
 def calculate_entropy(text):
 
     counter = Counter(text)
@@ -68,54 +116,75 @@ def calculate_entropy(text):
 
     return entropy
 
-
+# =========================
 # TYPOSQUATTING SCORE
+# =========================
+
 def typosquat_score(domain):
 
-    minimum_distance = 999
+    maximum_similarity = 0
 
     for brand in trusted_brands:
 
-        distance = Levenshtein.distance(
+        similarity = Levenshtein.ratio(
             domain,
             brand
         )
 
-        if distance < minimum_distance:
+        if similarity > maximum_similarity:
 
-            minimum_distance = distance
+            maximum_similarity = similarity
 
-    return minimum_distance
+    return maximum_similarity
 
-
+# =========================
 # FEATURE EXTRACTION
+# =========================
+
 def extract_features(url):
 
     ext = tldextract.extract(url)
 
     domain = ext.domain
+    suffix = ext.suffix
     subdomain = ext.subdomain
 
     url_entropy = calculate_entropy(url)
 
     typo_score = typosquat_score(domain)
 
-    features = [
+    handcrafted_features = [[
 
         len(url),
+
+        len(domain),
+
         url.count('.'),
+
         url.count('-'),
 
-        url.count('login'),
-        url.count('verify'),
-        url.count('123'),
-        url.count('cloud'),
-        url.count('password'),
-        url.count('secure'),
-        url.count('confirm'),
-        url.count('999'),
+        url.count('/'),
 
-        url.count('http://'),
+        sum(c.isdigit() for c in url),
+
+        sum(not c.isalnum() for c in url),
+
+        len(subdomain.split('.'))
+        if subdomain else 0,
+
+        int(url.startswith('https://')),
+
+        int(url.startswith('http://')),
+
+        url.lower().count('login'),
+
+        url.lower().count('verify'),
+
+        url.lower().count('password'),
+
+        url.lower().count('secure'),
+
+        url.lower().count('confirm'),
 
         int(
             ('google' in url)
@@ -143,33 +212,54 @@ def extract_features(url):
             and ('microsoft.com' not in url)
         ),
 
-        int(url.endswith('.ru')),
+        int(suffix in bad_tlds),
 
-        url.count('/'),
+        int(any(s in url for s in shorteners)),
 
-        sum(c.isdigit() for c in url),
+        int(bool(
+            re.search(
+                r'\d+\.\d+\.\d+\.\d+',
+                url
+            )
+        )),
 
-        sum(not c.isalnum() for c in url),
-
-        len(subdomain.split('.'))
-        if subdomain else 0,
+        int('//' in url[8:]),
 
         url_entropy,
 
         typo_score
-    ]
+    ]]
 
-    return [features]
+    # TF-IDF FEATURES
+    tfidf_features = vectorizer.transform([url])
 
+    # COMBINE BOTH
+    handcrafted_sparse = csr_matrix(
+        handcrafted_features
+    )
 
+    combined_features = hstack([
+
+        handcrafted_sparse,
+        tfidf_features
+
+    ])
+
+    return combined_features
+
+# =========================
 # HOME ROUTE
+# =========================
+
 @app.route("/")
 def home():
 
     return "PhishGuard backend running!"
 
-
+# =========================
 # ANALYZE ROUTE
+# =========================
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
 
@@ -178,7 +268,9 @@ def analyze():
     if not data or "url" not in data:
 
         return jsonify({
+
             "error": "URL missing"
+
         }), 400
 
     url = data["url"]
@@ -197,7 +289,9 @@ def analyze():
 
     # MODEL PROBABILITY
     probability = float(
+
         model.predict_proba(features)[0][1]
+
     )
 
     # RISK SCORE
@@ -211,7 +305,10 @@ def analyze():
 
         if trusted in domain:
 
-            risk_score = min(risk_score, 3)
+            risk_score = min(
+                risk_score,
+                3
+            )
 
             break
 
@@ -251,6 +348,12 @@ def analyze():
             "No HTTPS encryption"
         )
 
+    if risk_score >= 80:
+
+        reasons.append(
+            "High phishing probability detected"
+        )
+
     if len(reasons) == 0:
 
         reasons.append(
@@ -260,166 +363,20 @@ def analyze():
     return jsonify({
 
         "url": url,
+
         "prediction": label,
+
         "risk_score": risk_score,
+
         "confidence": risk_score,
+
         "reasons": reasons
     })
 
+# =========================
+# RUN SERVER
+# =========================
 
 if __name__ == "__main__":
 
     app.run(debug=True)
-
-
-# from flask import Flask, request, jsonify
-# from flask_cors import CORS
-
-# import joblib
-# import math
-# import re
-
-# from urllib.parse import urlparse
-
-# app = Flask(__name__)
-# CORS(
-#     app,
-#     resources={
-#         r"/*": {
-#             "origins": "*"
-#         }
-#     }
-# )
-
-# # Load trained ML model
-# model = joblib.load("phishing_model.pkl")
-# print("Model expects", model.n_features_in_, "features")
-
-# # Trusted domains
-# TRUSTED_DOMAINS = [
-#     "google.com",
-#     "youtube.com",
-#     "chatgpt.com",
-#     "openai.com",
-#     "github.com",
-#     "microsoft.com"
-# ]
-
-# # Extract simple URL features
-# def extract_features(url):
-
-#     features = []
-
-#     # URL length
-#     features.append(len(url))
-
-#     # Count dots
-#     features.append(url.count("."))
-
-#     # Count hyphens
-#     features.append(url.count("-"))
-
-#     # Has HTTPS
-#     features.append(1 if url.startswith("https") else 0)
-
-#     # Count special chars
-#     features.append(len(re.findall(r"[!@#$%^&*(),?\":{}|<>]", url)))
-
-#     return features  
-
-# # Home route
-# @app.route("/")
-# def home():
-#     return "PhishGuard backend running!"
-
-# # Analyze route
-# @app.route("/analyze", methods=["POST"])
-# def analyze():
-
-#     data = request.get_json()
-
-#     if not data or "url" not in data:
-#         return jsonify({
-#             "error": "URL missing"
-#         }), 400
-
-#     url = data["url"]
-
-#     parsed = urlparse(url)
-#     domain = parsed.netloc.lower()
-
-#     # Remove www.
-#     domain = domain.replace("www.", "")
-
-#     # Extract features
-#     features = extract_features(url)
-
-#     print("Generated features:", len(features))
-#     print("Features:", features)
-#     # Predict
-#     prediction = model.predict(features)[0]
-
-#     # Probability
-#     probability = float(
-#         model.predict_proba(features)[0][1]
-#     )
-
-#     # Better calibrated score
-#     risk_score = max(
-#         1,
-#         int((probability ** 2) * 100)
-#     )
-
-#     # Clamp trusted domains
-#     for trusted in TRUSTED_DOMAINS:
-
-#         if trusted in domain:
-
-#             risk_score = min(risk_score, 3)
-
-#             break
-
-#     # Prediction label
-#     if risk_score >= 60:
-#         label = "PHISHING"
-#     else:
-#         label = "SAFE"
-
-#     reasons = []
-
-#     if "login" in url.lower():
-#         reasons.append(
-#             "Contains login keyword"
-#         )
-
-#     if url.count("-") >= 3:
-#         reasons.append(
-#             "Too many hyphens"
-#         )
-
-#     if len(url) > 100:
-#         reasons.append(
-#             "Very long URL"
-#         )
-
-#     if not url.startswith("https"):
-#         reasons.append(
-#             "No HTTPS encryption"
-#         )
-
-#     if len(reasons) == 0:
-#         reasons.append(
-#             "No major phishing indicators detected"
-#         )
-
-#     return jsonify({
-#         "url": url,
-#         "prediction": label,
-#         "risk_score": risk_score,
-#         "confidence": risk_score,
-#         "reasons": reasons
-#     })
-
-# if __name__ == "__main__":
-#     app.run(debug=True)
-    

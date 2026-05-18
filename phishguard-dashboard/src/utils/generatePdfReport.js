@@ -1,3 +1,4 @@
+//```javascript
 import { jsPDF } from "jspdf";
 
 function getSeverity(riskScore) {
@@ -15,13 +16,13 @@ function getRecommendation(prediction) {
       "Block this URL immediately.",
       "Warn the user.",
       "Investigate possible credential compromise.",
-      "Add domain to blacklist."
+      "Add domain to blacklist.",
     ];
   }
 
   return [
     "No immediate action required.",
-    "Continue monitoring."
+    "Continue monitoring.",
   ];
 }
 
@@ -29,84 +30,122 @@ export default function generatePdfReport(scan) {
   const doc = new jsPDF();
 
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
 
   // Colors
-  const PURPLE = [101, 41, 238];
   const RED = [239, 68, 68];
   const GREEN = [34, 197, 94];
   const BLACK = [0, 0, 0];
-  const GRAY = [80, 80, 80];
+  const GRAY = [100, 100, 100];
 
-  const isPhishing = scan.prediction.toLowerCase().includes("phish");
-  const severity = getSeverity(scan.risk_score);
-  const recommendations = getRecommendation(scan.prediction);
+  const prediction = scan.prediction || "Unknown";
+  const riskScore = scan.risk_score ?? 0;
+  const isPhishing = prediction.toLowerCase().includes("phish");
+  const severity = getSeverity(riskScore);
+  const recommendations = getRecommendation(prediction);
 
-  // Background
-  doc.setFillColor(...BLACK);
-  doc.rect(0, 0, pageWidth, 297, "F");
+  // =========================
+  // HEADER
+  // =========================
+  const scannedUrl = scan.url || "Unknown URL";
 
-  // Header
-  doc.setTextColor(...PURPLE);
+  doc.setTextColor(...BLACK);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(24);
-  doc.text("PHISHGUARD", 20, 20);
-
   doc.setFontSize(16);
-  doc.text("Threat Intelligence Report", 20, 30);
 
-  doc.setTextColor(255, 255, 255);
+  // Header text: Report on {URL}
+  const headerText = `Report on ${scannedUrl}`;
+
+  // Wrap long URLs
+  const wrappedHeader = doc.splitTextToSize(headerText, pageWidth - 40);
+
+  // Center-align header
+  doc.text(wrappedHeader, pageWidth / 2, 20, {
+    align: "center",
+  });
+
+  // Calculate bottom of header block
+  const headerBottomY = 20 + wrappedHeader.length * 7;
+
+  
+
+  // Report Title
+  doc.setFontSize(20);
+  doc.text("Phishing Detection Report", pageWidth / 2, headerBottomY + 15, {
+    align: "center",
+  });
+  // Divider line
+  doc.setDrawColor(...BLACK);
+  doc.setLineWidth(0.5);
+  doc.line(20, headerBottomY + 4, pageWidth - 20, headerBottomY + 4);
+ 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 38);
+  doc.text(
+    `Generated: ${new Date().toLocaleDateString("en-IN")}`,
+    pageWidth / 2,
+    headerBottomY + 23,
+    { align: "center" }
+  );
+  
+  // Starting position for content
+  let y = headerBottomY + 40;
 
-  // Divider
-  doc.setDrawColor(...PURPLE);
-  doc.line(20, 42, 190, 42);
-
-  // Executive Summary
-  doc.setTextColor(...PURPLE);
+  // =========================
+  // EXECUTIVE SUMMARY
+  // =========================
+  doc.setTextColor(...BLACK);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
-  doc.text("Executive Summary", 20, 55);
+  doc.text("Executive Summary", 20, y);
 
-  doc.setTextColor(255, 255, 255);
+  y += 10;
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
 
   const summaryLines = [
-    `Risk Score: ${scan.risk_score}%`,
+    `Prediction: ${prediction}`,
+    `Risk Score: ${riskScore}%`,
     `Severity: ${severity}`,
-    `Timestamp: ${scan.timestamp}`
+    `Timestamp: ${scan.timestamp || new Date().toLocaleString("en-IN")}`,
   ];
 
-  let y = 65;
   summaryLines.forEach((line) => {
     const wrapped = doc.splitTextToSize(line, 170);
     doc.text(wrapped, 20, y);
     y += wrapped.length * 6;
   });
 
-  // Risk Score Highlight
-  y += 5;
+  // =========================
+  // RISK SCORE HIGHLIGHT
+  // =========================
+  y += 8;
+
   doc.setTextColor(...(isPhishing ? RED : GREEN));
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text(`Risk Score: ${scan.risk_score}%`, 20, y);
+  doc.text(`Risk Score: ${riskScore}%`, 20, y);
 
-  // Detection Reasons
+  // =========================
+  // DETECTION REASONS
+  // =========================
   y += 15;
-  doc.setTextColor(...PURPLE);
+
+  doc.setTextColor(...BLACK);
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("Detection Reasons", 20, y);
 
   y += 10;
-  doc.setTextColor(255, 255, 255);
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
 
-  const reasons = scan.reasons?.length
-    ? scan.reasons
-    : ["No major phishing indicators detected."];
+  const reasons =
+    scan.reasons && scan.reasons.length > 0
+      ? scan.reasons
+      : ["No major phishing indicators detected."];
 
   reasons.forEach((reason) => {
     const wrapped = doc.splitTextToSize(`• ${reason}`, 170);
@@ -114,15 +153,17 @@ export default function generatePdfReport(scan) {
     y += wrapped.length * 6;
   });
 
-  // Recommendations
+  // =========================
+  // RECOMMENDED ACTIONS
+  // =========================
   y += 8;
-  doc.setTextColor(...PURPLE);
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("Recommended Actions", 20, y);
 
   y += 10;
-  doc.setTextColor(255, 255, 255);
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
 
@@ -132,16 +173,220 @@ export default function generatePdfReport(scan) {
     y += wrapped.length * 6;
   });
 
-  // Footer
+  // =========================
+  // FOOTER
+  // =========================
   doc.setTextColor(...GRAY);
   doc.setFontSize(9);
   doc.text(
     "Generated by PhishGuard – AI-Powered Phishing Detection Platform",
-    20,
-    285
+    pageWidth / 2,
+    pageHeight - 10,
+    {
+      align: "center",
+    }
   );
 
-  // Save
+  // =========================
+  // SAVE PDF
+  // =========================
   const filename = `PhishGuard_Report_${Date.now()}.pdf`;
   doc.save(filename);
 }
+
+
+
+
+
+
+//alert("New PDF code is running");
+// import { jsPDF } from "jspdf";
+
+// function getSeverity(riskScore) {
+//   if (riskScore >= 81) return "Critical";
+//   if (riskScore >= 61) return "High";
+//   if (riskScore >= 31) return "Medium";
+//   return "Low";
+// }
+
+// function getRecommendation(prediction) {
+//   const pred = prediction.toLowerCase();
+
+//   if (pred.includes("phish")) {
+//     return [
+//       "Block this URL immediately.",
+//       "Warn the user.",
+//       "Investigate possible credential compromise.",
+//       "Add domain to blacklist.",
+//     ];
+//   }
+
+//   return [
+//     "No immediate action required.",
+//     "Continue monitoring.",
+//   ];
+// }
+
+// export default function generatePdfReport(scan) {
+//   const doc = new jsPDF();
+
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+
+//   // Colors
+//   const RED = [239, 68, 68];
+//   const GREEN = [34, 197, 94];
+//   const BLACK = [0, 0, 0];
+//   const GRAY = [100, 100, 100];
+
+//   const isPhishing = scan.prediction.toLowerCase().includes("phish");
+//   const severity = getSeverity(scan.risk_score);
+//   const recommendations = getRecommendation(scan.prediction);
+
+//   // =========================
+//   // HEADER
+//   // =========================
+//   const scannedUrl = scan.url || "Unknown URL";
+
+//   doc.setTextColor(...BLACK);
+//   doc.setFont("helvetica", "bold");
+//   doc.setFontSize(16);
+
+//   // Wrap long URLs
+//   const headerText = `Report on ${scannedUrl}`;
+//   const wrappedUrl = doc.splitTextToSize(scannedUrl, pageWidth - 40);
+
+//   // Center-align URL
+//   doc.text(wrappedUrl, pageWidth / 2, 20, {
+//     align: "center",
+//   });
+
+//   // Calculate bottom of URL block
+//   const headerBottomY = 20 + wrappedUrl.length * 7;
+
+//   // Divider line
+//   doc.setDrawColor(...BLACK);
+//   doc.setLineWidth(0.5);
+//   doc.line(20, headerBottomY + 4, pageWidth - 20, headerBottomY + 4);
+
+//   // Report Title
+//   doc.setFontSize(20);
+//   doc.text("Phishing Detection Report", pageWidth / 2, headerBottomY + 15, {
+//     align: "center",
+//   });
+
+//   // Generated Timestamp
+//   doc.setFont("helvetica", "normal");
+//   doc.setFontSize(10);
+//   doc.text(
+//     `Generated: ${new Date().toLocaleDateString("en-IN")}`,
+//     pageWidth / 2,
+//     headerBottomY + 23,
+//     { align: "center" }
+//   );
+
+//   // Starting position for content
+//   let y = headerBottomY + 40;
+
+//   // =========================
+//   // EXECUTIVE SUMMARY
+//   // =========================
+//   doc.setTextColor(...BLACK);
+//   doc.setFont("helvetica", "bold");
+//   doc.setFontSize(14);
+//   doc.text("Executive Summary", 20, y);
+
+//   y += 10;
+
+//   doc.setFont("helvetica", "normal");
+//   doc.setFontSize(11);
+
+//   const summaryLines = [
+//     `Prediction: ${scan.prediction}`,
+//     `Risk Score: ${scan.risk_score}%`,
+//     `Severity: ${severity}`,
+//     `Timestamp: ${scan.timestamp || new Date().toLocaleString()}`,
+//   ];
+
+//   summaryLines.forEach((line) => {
+//     const wrapped = doc.splitTextToSize(line, 170);
+//     doc.text(wrapped, 20, y);
+//     y += wrapped.length * 6;
+//   });
+
+//   // =========================
+//   // RISK SCORE HIGHLIGHT
+//   // =========================
+//   y += 8;
+
+//   doc.setTextColor(...(isPhishing ? RED : GREEN));
+//   doc.setFont("helvetica", "bold");
+//   doc.setFontSize(18);
+//   doc.text(`Risk Score: ${scan.risk_score}%`, 20, y);
+
+//   // =========================
+//   // DETECTION REASONS
+//   // =========================
+//   y += 15;
+
+//   doc.setTextColor(...BLACK);
+//   doc.setFont("helvetica", "bold");
+//   doc.setFontSize(14);
+//   doc.text("Detection Reasons", 20, y);
+
+//   y += 10;
+
+//   doc.setFont("helvetica", "normal");
+//   doc.setFontSize(11);
+
+//   const reasons =
+//     scan.reasons && scan.reasons.length > 0
+//       ? scan.reasons
+//       : ["No major phishing indicators detected."];
+
+//   reasons.forEach((reason) => {
+//     const wrapped = doc.splitTextToSize(`• ${reason}`, 170);
+//     doc.text(wrapped, 25, y);
+//     y += wrapped.length * 6;
+//   });
+
+//   // =========================
+//   // RECOMMENDED ACTIONS
+//   // =========================
+//   y += 8;
+
+//   doc.setFont("helvetica", "bold");
+//   doc.setFontSize(14);
+//   doc.text("Recommended Actions", 20, y);
+
+//   y += 10;
+
+//   doc.setFont("helvetica", "normal");
+//   doc.setFontSize(11);
+
+//   recommendations.forEach((item) => {
+//     const wrapped = doc.splitTextToSize(`• ${item}`, 170);
+//     doc.text(wrapped, 25, y);
+//     y += wrapped.length * 6;
+//   });
+
+//   // =========================
+//   // FOOTER
+//   // =========================
+//   doc.setTextColor(...GRAY);
+//   doc.setFontSize(9);
+//   doc.text(
+//     "Generated by PhishGuard – AI-Powered Phishing Detection Platform",
+//     pageWidth / 2,
+//     pageHeight - 10,
+//     {
+//       align: "center",
+//     }
+//   );
+
+//   // =========================
+//   // SAVE PDF
+//   // =========================
+//   const filename = `PhishGuard_Report_${Date.now()}.pdf`;
+//   doc.save(filename);
+// }
