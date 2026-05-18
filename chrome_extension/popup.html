@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>PhishGuard</title>
+
+  <link rel="stylesheet" href="popup.css" />
+</head>
+
+<body>
+
+  <div class="container">
+
+    <h1 class="title">PhishGuard</h1>
+
+    <button id="analyzeBtn">
+      Analyze Current Website
+    </button>
+    <button id="openDashboard">View Dashboard</button>
+    <div class="resultBox">
+
+      <h2 id="status">
+        Waiting...
+      </h2>
+
+      <p id="risk">
+        Risk Score:
+      </p>
+
+      <p id="reason">
+        Detection reason will appear here
+      </p>
+
+      <p id="url">
+        URL will appear here
+      </p>
+
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+
+</body>
+</html>

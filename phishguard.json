@@ -1,0 +1,11 @@
+{
+  "url": "https://paypal-login-secure.com",
+  "prediction": "phishing",
+  "probability": 0.97,
+  "risk_score": 96,
+  "reasons": [
+    "Domain age less than 7 days",
+    "Contains suspicious keyword 'login'",
+    "VirusTotal reports 8 malicious detections"
+  ]
+}

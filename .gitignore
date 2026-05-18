@@ -1,0 +1,7 @@
+__pycache__/
+node_modules/
+venv/
+dist/
+build/
+*.pyc
+backend/phishing_model.pkl
